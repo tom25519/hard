@@ -64,6 +64,8 @@
 //! types implement: [`Buffer`], [`BufferMut`], [`BufferReadOnly`], [`BufferNoAccess`].
 pub mod mem;
 
+pub use paste;
+
 use errno::Errno;
 use libsodium_sys as sodium;
 use thiserror::Error;
@@ -368,7 +370,7 @@ macro_rules! buffer_immutable_impl {
 #[doc(hidden)]
 macro_rules! buffer_mutable_impl {
     ($name:ident, $size:expr) => {
-        paste::paste! {
+        $crate::paste::paste! {
             $crate::buffer_common_impl!($name, $size);
             $crate::buffer_immutable_impl!($name, $size);
 
@@ -469,7 +471,7 @@ macro_rules! buffer_mutable_impl {
 #[doc(hidden)]
 macro_rules! buffer_noaccess_impl {
     ($name:ident, $size:expr) => {
-        paste::paste! {
+        $crate::paste::paste! {
             $crate::buffer_common_impl!([<$name NoAccess>], $size);
 
             impl $crate::Buffer for [<$name NoAccess>] {
@@ -527,7 +529,7 @@ macro_rules! buffer_noaccess_impl {
 #[doc(hidden)]
 macro_rules! buffer_readonly_impl {
     ($name:ident, $size:expr) => {
-        paste::paste! {
+        $crate::paste::paste! {
             $crate::buffer_common_impl!([<$name ReadOnly>], $size);
             $crate::buffer_immutable_impl!([<$name ReadOnly>], $size);
 
@@ -637,7 +639,7 @@ macro_rules! buffer_readonly_impl {
 #[macro_export]
 macro_rules! buffer_type {
     ($(#[$metadata:meta])* $name:ident($size:expr)$(;)?) => {
-        paste::paste! {
+        $crate::paste::paste! {
             $(#[$metadata])*
             struct $name(std::ptr::NonNull<[u8; $size]>);
             $crate::buffer_mutable_impl!($name, $size);
@@ -652,7 +654,7 @@ macro_rules! buffer_type {
         }
     };
     ($(#[$metadata:meta])* pub $name:ident($size:expr)$(;)?) => {
-        paste::paste! {
+        $crate::paste::paste! {
             $(#[$metadata])*
             pub struct $name(std::ptr::NonNull<[u8; $size]>);
             $crate::buffer_mutable_impl!($name, $size);
@@ -703,7 +705,7 @@ macro_rules! buffer_type {
 #[macro_export]
 macro_rules! buffer {
     ($size:expr$(;)?) => {{
-        paste::paste! {
+        $crate::paste::paste! {
             use $crate::Buffer;
             $crate::buffer_type!([<_HardAnonBuffer $size>]($size));
             [<_HardAnonBuffer $size>]::new()
