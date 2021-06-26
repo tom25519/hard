@@ -638,35 +638,22 @@ macro_rules! buffer_readonly_impl {
 /// ```
 #[macro_export]
 macro_rules! buffer_type {
-    ($(#[$metadata:meta])* $name:ident($size:expr)$(;)?) => {
-        $crate::paste::paste! {
-            $(#[$metadata])*
-            struct $name(std::ptr::NonNull<[u8; $size]>);
-            $crate::buffer_mutable_impl!($name, $size);
+    ( $( $(#[$metadata:meta])* $vis:vis $name:ident($size:expr)$(;)? )* ) => {
+        $(
+            $crate::paste::paste! {
+                $(#[$metadata])*
+                $vis struct $name(std::ptr::NonNull<[u8; $size]>);
+                $crate::buffer_mutable_impl!($name, $size);
 
-            /// Variation of this buffer type whose contents are restricted from being accessed.
-            struct [<$name NoAccess>](std::ptr::NonNull<[u8; $size]>);
-            $crate::buffer_noaccess_impl!($name, $size);
+                /// Variation of this buffer type whose contents are restricted from being accessed.
+                $vis struct [<$name NoAccess>](std::ptr::NonNull<[u8; $size]>);
+                $crate::buffer_noaccess_impl!($name, $size);
 
-            /// Variation of this buffer type whose contents are restricted from being mutated.
-            struct [<$name ReadOnly>](std::ptr::NonNull<[u8; $size]>);
-            $crate::buffer_readonly_impl!($name, $size);
-        }
-    };
-    ($(#[$metadata:meta])* pub $name:ident($size:expr)$(;)?) => {
-        $crate::paste::paste! {
-            $(#[$metadata])*
-            pub struct $name(std::ptr::NonNull<[u8; $size]>);
-            $crate::buffer_mutable_impl!($name, $size);
-
-            /// Variation of this buffer type whose contents are restricted from being accessed.
-            pub struct [<$name NoAccess>](std::ptr::NonNull<[u8; $size]>);
-            $crate::buffer_noaccess_impl!($name, $size);
-
-            /// Variation of this buffer type whose contents are restricted from being mutated.
-            pub struct [<$name ReadOnly>](std::ptr::NonNull<[u8; $size]>);
-            $crate::buffer_readonly_impl!($name, $size);
-        }
+                /// Variation of this buffer type whose contents are restricted from being mutated.
+                $vis struct [<$name ReadOnly>](std::ptr::NonNull<[u8; $size]>);
+                $crate::buffer_readonly_impl!($name, $size);
+            }
+        )*
     };
 }
 
