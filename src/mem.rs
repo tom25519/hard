@@ -70,6 +70,10 @@ pub unsafe fn memzero<T>(ptr: NonNull<T>) {
     sodium::sodium_memzero(ptr.as_ptr() as *mut c_void, std::mem::size_of::<T>())
 }
 
+pub unsafe fn fill_random<T>(ptr: NonNull<T>) {
+    sodium::randombytes_buf(ptr.as_ptr() as *mut c_void, std::mem::size_of::<T>())
+}
+
 /// Compare two regions of memory for equality in constant-time.
 ///
 /// Uses `sodium_memcmp` for constant-time comparison of two memory regions, to prevent timing

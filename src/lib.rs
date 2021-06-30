@@ -138,6 +138,12 @@ where
     /// unless you want to set a buffer to zero for initialisation purposes.
     fn zero(&mut self);
 
+    /// Overwrite the contents of the buffer with random data.
+    ///
+    /// The random data is obtained using Sodium's `randombytes` API, which makes use of the
+    /// operating systems CSPRNG to generate cryptographically secure random data.
+    fn fill_random(&mut self);
+
     /// Attempt to clone this buffer.
     ///
     /// This will allocate a new region of memory, and copy the contents of this buffer into it.
@@ -402,6 +408,10 @@ macro_rules! buffer_mutable_impl {
                     // safe to write zeroes to the buffer. All zeroes is a valid memory
                     // representation of a u8 array.
                     unsafe { $crate::mem::memzero(self.0) }
+                }
+
+                fn fill_random(&mut self) {
+                    unsafe { $crate::mem::fill_random(self.0) }
                 }
 
                 fn try_clone(&self) -> Result<Self, $crate::HardError> {
