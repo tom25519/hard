@@ -1,6 +1,6 @@
 [package]
 name = "hard"
-version = "0.3.2"
+version = "0.3.0"
 authors = ["tom25519 <tom25519@pm.me>"]
 edition = "2018"
 description = "Security hardened buffers for Rust based on libsodium"
