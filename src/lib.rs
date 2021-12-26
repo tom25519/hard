@@ -8,8 +8,9 @@
 //! Memory allocated using hard is placed directly at the end of a page, followed by a guard page,
 //! so any buffer overflow will immediately result in the termination of the program. A canary is
 //! placed before the allocated memory to detect modifications on free, and another guard page is
-//! placed before this. Finally, operating system is advised not to swap the memory to disk, or
-//! include it in crash reports/core dumps.
+//! placed before this. The operating system is advised not to swap the memory to disk, or include
+//! it in crash reports/core dumps. Finally, when the memory is freed, it is securely cleared, in
+//! such a way that the compiler will not attempt to optimise away the operation.
 //!
 //! Hard also provides an interface for marking memory as read-only/no-access when its
 //! modification/access is not required. This can be used to protect sensitive data from access
