@@ -21,6 +21,8 @@
 //! # Examples
 //! ```rust
 //! use hard::{buffer_type, Buffer, BufferMut};
+//! # #[cfg(feature = "restricted-types")]
+//! # use hard::{BufferReadOnly, BufferNoAccess};
 //!
 //! // Create a new public buffer type, which will store 32 bytes (= 256 bits) of sensitive data:
 //! buffer_type! {
