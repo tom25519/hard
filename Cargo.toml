@@ -14,3 +14,6 @@ errno = "0.2.8"
 libsodium-sys-stable = "1.19.19"
 paste = "1.0.6"
 thiserror = "1.0.30"
+
+[features]
+restricted-types = []

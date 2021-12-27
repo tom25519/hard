@@ -14,7 +14,9 @@
 //!
 //! Hard also provides an interface for marking memory as read-only/no-access when its
 //! modification/access is not required. This can be used to protect sensitive data from access
-//! while not in use.
+//! while not in use. Enable the `restricted-types` feature to generate the code necessary for
+//! this: Extra types will be generated for each buffer type, which only support readonly/noaccess
+//! contents.
 //!
 //! # Examples
 //! ```rust
@@ -37,7 +39,18 @@
 //! my_key[1] ^= 0xcd;
 //!
 //! // Mark the buffer as read-only, which will prevent modification to its contents:
+//! // This requires the "restricted-types" feature to be enabled!
+//! # #[cfg(feature = "restricted-types")]
 //! let my_key = my_key.into_readonly().unwrap();
+//!
+//! // We can also mark the buffer as no-access, which prevents reading its contents as well as
+//! // writing to it. Again, this requires the "restricted-types" feature!
+//! # #[cfg(feature = "restricted-types")]
+//! let my_key = my_key.into_noaccess().unwrap();
+//!
+//! // And finally, we can convert it back to the standard readable, mutable buffer like so:
+//! # #[cfg(feature = "restricted-types")]
+//! let my_key = my_key.into_mut().unwrap();
 //!
 //! // When the buffer is dropped, its contents are securely erased, preventing leakage of the
 //! // contents via uninitialised memory.
@@ -62,7 +75,7 @@
 //! ```
 //!
 //! For more information, see the [`buffer`] and [`buffer_type`] macros, and the traits the buffer
-//! types implement: [`Buffer`], [`BufferMut`], [`BufferReadOnly`], [`BufferNoAccess`].
+//! types implement: [`Buffer`] and [`BufferMut`].
 pub mod mem;
 
 pub use paste;
@@ -126,10 +139,12 @@ where
     Self: Sized,
 {
     /// The variant of this buffer that is locked such that its contents cannot be accessed.
+    #[cfg(feature = "restricted-types")]
     type NoAccess: BufferNoAccess;
 
     /// The variant of this buffer that is locked such that its contents cannot be mutated,
     /// although they can be read.
+    #[cfg(feature = "restricted-types")]
     type ReadOnly: BufferReadOnly;
 
     /// Overwrite the contents of the buffer with zeros, in such a way that will not be optimised
@@ -152,6 +167,7 @@ where
     ///
     /// If there is no `mprotect` (or equivalent) syscall on this platform, this function will
     /// return an error.
+    #[cfg(feature = "restricted-types")]
     fn into_noaccess(self) -> Result<Self::NoAccess, HardError>;
 
     /// `mprotect` the region of memory pointed to by this buffer, so that it cannot be mutated,
@@ -165,10 +181,12 @@ where
     ///
     /// If there is no `mprotect` (or equivalent) syscall on this platform, this function will
     /// return an error.
+    #[cfg(feature = "restricted-types")]
     fn into_readonly(self) -> Result<Self::ReadOnly, HardError>;
 }
 
 /// Trait implemented by any buffer type whose memory is marked no-access.
+#[cfg(feature = "restricted-types")]
 pub trait BufferNoAccess: Buffer
 where
     Self: Sized,
@@ -206,6 +224,7 @@ where
 }
 
 /// Trait implemented by any buffer type whose memory is marked read-only.
+#[cfg(feature = "restricted-types")]
 pub trait BufferReadOnly: Buffer
 where
     Self: Sized,
@@ -263,7 +282,7 @@ where
 
 #[macro_export]
 #[doc(hidden)]
-macro_rules! buffer_common_impl {
+macro_rules! _buffer_common_impl {
     ($name:ident, $size:expr) => {
         impl Drop for $name {
             fn drop(&mut self) {
@@ -294,7 +313,7 @@ macro_rules! buffer_common_impl {
 
 #[macro_export]
 #[doc(hidden)]
-macro_rules! buffer_immutable_impl {
+macro_rules! _buffer_immutable_impl {
     ($name:ident, $size:expr) => {
         #[doc(hidden)]
         unsafe impl $crate::BufferAsPtr for $name {
@@ -369,11 +388,12 @@ macro_rules! buffer_immutable_impl {
 
 #[macro_export]
 #[doc(hidden)]
-macro_rules! buffer_mutable_impl {
+#[cfg(feature = "restricted-types")]
+macro_rules! _buffer_mutable_impl {
     ($name:ident, $size:expr) => {
         $crate::paste::paste! {
-            $crate::buffer_common_impl!($name, $size);
-            $crate::buffer_immutable_impl!($name, $size);
+            $crate::_buffer_common_impl!($name, $size);
+            $crate::_buffer_immutable_impl!($name, $size);
 
             impl $crate::Buffer for $name {
                 const SIZE: usize = $size;
@@ -470,10 +490,89 @@ macro_rules! buffer_mutable_impl {
 
 #[macro_export]
 #[doc(hidden)]
-macro_rules! buffer_noaccess_impl {
+#[cfg(not(feature = "restricted-types"))]
+macro_rules! _buffer_mutable_impl {
     ($name:ident, $size:expr) => {
         $crate::paste::paste! {
-            $crate::buffer_common_impl!([<$name NoAccess>], $size);
+            $crate::_buffer_common_impl!($name, $size);
+            $crate::_buffer_immutable_impl!($name, $size);
+
+            impl $crate::Buffer for $name {
+                const SIZE: usize = $size;
+
+                fn new() -> Result<Self, $crate::HardError> {
+                    $crate::init()?;
+                    // SAFETY: This call to malloc() will allocate the memory required for a [u8;
+                    // $size] type, outside of Rust's memory management. The associated memory is
+                    // always freed in the corresponding `drop` call. We never free the memory in
+                    // any other method of this struct, nor do we ever give out a pointer to the
+                    // memory directly, only references. The region of memory allocated will always
+                    // a valid representation of a [u8; $size], as a [u8; $size] is simply
+                    // represented as $size bytes of memory, of arbitrary values. The alignment for
+                    // a u8 is just 1, so we don't need to worry about alignment issues.
+                    let ptr = unsafe { $crate::mem::malloc()? };
+                    Ok(Self(ptr))
+                }
+            }
+
+            impl $crate::BufferMut for $name {
+                fn zero(&mut self) {
+                    // SAFETY: While a buffer is in scope, its memory is valid. It is therefore
+                    // safe to write zeroes to the buffer. All zeroes is a valid memory
+                    // representation of a u8 array.
+                    unsafe { $crate::mem::memzero(self.0) }
+                }
+
+                fn try_clone(&self) -> Result<Self, $crate::HardError> {
+                    let mut new_buf = Self::new()?;
+                    new_buf.copy_from_slice(self.as_ref());
+                    Ok(new_buf)
+                }
+            }
+
+            impl std::convert::AsMut<[u8; $size]> for $name {
+                fn as_mut(&mut self) -> &mut [u8; $size] {
+                    // SAFETY: As long as a buffer type exists, the memory backing it is
+                    // dereferenceable and non-null. The lifetime of the returned reference is that
+                    // of the struct, as the memory is only freed on drop. Any portion of memory of
+                    // length T is a valid array of `u8`s of size T, so initialisation & alignment
+                    // issues are not a concern.
+                    unsafe { self.0.as_mut() }
+                }
+            }
+
+            impl std::borrow::BorrowMut<[u8; $size]> for $name {
+                fn borrow_mut(&mut self) -> &mut [u8; $size] {
+                    // SAFETY: As long as a buffer type exists, the memory backing it is
+                    // dereferenceable and non-null. The lifetime of the returned reference is that
+                    // of the struct, as the memory is only freed on drop. Any portion of memory of
+                    // length T is a valid array of `u8`s of size T, so initialisation & alignment
+                    // issues are not a concern.
+                    unsafe { self.0.as_mut() }
+                }
+            }
+
+            impl std::ops::DerefMut for $name {
+                fn deref_mut(&mut self) -> &mut Self::Target {
+                    // SAFETY: As long as a buffer type exists, the memory backing it is
+                    // dereferenceable and non-null. The lifetime of the returned reference is that
+                    // of the struct, as the memory is only freed on drop. Any portion of memory of
+                    // length T is a valid array of `u8`s of size T, so initialisation & alignment
+                    // issues are not a concern.
+                    unsafe { self.0.as_mut() }
+                }
+            }
+        }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+#[cfg(feature = "restricted-types")]
+macro_rules! _buffer_noaccess_impl {
+    ($name:ident, $size:expr) => {
+        $crate::paste::paste! {
+            $crate::_buffer_common_impl!([<$name NoAccess>], $size);
 
             impl $crate::Buffer for [<$name NoAccess>] {
                 const SIZE: usize = $size;
@@ -528,11 +627,12 @@ macro_rules! buffer_noaccess_impl {
 
 #[macro_export]
 #[doc(hidden)]
-macro_rules! buffer_readonly_impl {
+#[cfg(feature = "restricted-types")]
+macro_rules! _buffer_readonly_impl {
     ($name:ident, $size:expr) => {
         $crate::paste::paste! {
-            $crate::buffer_common_impl!([<$name ReadOnly>], $size);
-            $crate::buffer_immutable_impl!([<$name ReadOnly>], $size);
+            $crate::_buffer_common_impl!([<$name ReadOnly>], $size);
+            $crate::_buffer_immutable_impl!([<$name ReadOnly>], $size);
 
             impl $crate::Buffer for [<$name ReadOnly>] {
                 const SIZE: usize = $size;
@@ -593,6 +693,44 @@ macro_rules! buffer_readonly_impl {
     };
 }
 
+#[macro_export]
+#[doc(hidden)]
+#[cfg(feature = "restricted-types")]
+macro_rules! _buffer_type_impl {
+    ( $( $(#[$metadata:meta])* $vis:vis $name:ident($size:expr)$(;)? )* ) => {
+        $(
+            $crate::paste::paste! {
+                $(#[$metadata])*
+                $vis struct $name(std::ptr::NonNull<[u8; $size]>);
+                $crate::_buffer_mutable_impl!($name, $size);
+
+                /// Variation of this buffer type whose contents are restricted from being accessed.
+                $vis struct [<$name NoAccess>](std::ptr::NonNull<[u8; $size]>);
+                $crate::_buffer_noaccess_impl!($name, $size);
+
+                /// Variation of this buffer type whose contents are restricted from being mutated.
+                $vis struct [<$name ReadOnly>](std::ptr::NonNull<[u8; $size]>);
+                $crate::_buffer_readonly_impl!($name, $size);
+            }
+        )*
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+#[cfg(not(feature = "restricted-types"))]
+macro_rules! _buffer_type_impl {
+    ( $( $(#[$metadata:meta])* $vis:vis $name:ident($size:expr)$(;)? )* ) => {
+        $(
+            $crate::paste::paste! {
+                $(#[$metadata])*
+                $vis struct $name(std::ptr::NonNull<[u8; $size]>);
+                $crate::_buffer_mutable_impl!($name, $size);
+            }
+        )*
+    };
+}
+
 /// Create a new fixed-size buffer type.
 ///
 /// `buffer_type!(Name(Size))` will create a new type with name `Name`, that provides access to
@@ -611,9 +749,9 @@ macro_rules! buffer_readonly_impl {
 ///      suitable for comparing sensitive data without the risk of timing attacks.
 ///  * [`Pointer`](std::fmt::Pointer)
 ///
-/// This macro also generates `NameNoAccess` and `NameReadOnly` variants, which use the operating
-/// system's memory protection utilities to mark the buffer's contents as completely inaccessible,
-/// and immutable, respectively.
+/// If the `restricted-types` feature is enabled, this macro also generates `NameNoAccess` and
+/// `NameReadOnly` variants, which use the operating system's memory protection utilities to mark
+/// the buffer's contents as completely inaccessible, and immutable, respectively.
 ///
 /// ## Example Usage
 /// ```rust
@@ -641,18 +779,9 @@ macro_rules! buffer_readonly_impl {
 macro_rules! buffer_type {
     ( $( $(#[$metadata:meta])* $vis:vis $name:ident($size:expr)$(;)? )* ) => {
         $(
-            $crate::paste::paste! {
+            $crate::_buffer_type_impl! {
                 $(#[$metadata])*
-                $vis struct $name(std::ptr::NonNull<[u8; $size]>);
-                $crate::buffer_mutable_impl!($name, $size);
-
-                /// Variation of this buffer type whose contents are restricted from being accessed.
-                $vis struct [<$name NoAccess>](std::ptr::NonNull<[u8; $size]>);
-                $crate::buffer_noaccess_impl!($name, $size);
-
-                /// Variation of this buffer type whose contents are restricted from being mutated.
-                $vis struct [<$name ReadOnly>](std::ptr::NonNull<[u8; $size]>);
-                $crate::buffer_readonly_impl!($name, $size);
+                $vis $name($size);
             }
         )*
     };
@@ -723,8 +852,10 @@ pub fn init() -> Result<(), HardError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        buffer, buffer_type, init, Buffer, BufferMut, BufferNoAccess, BufferReadOnly, HardError,
+        buffer, buffer_type, init, Buffer, BufferMut, HardError,
     };
+    #[cfg(feature = "restricted-types")]
+    use super::{BufferNoAccess, BufferReadOnly};
     use std::borrow::{Borrow, BorrowMut};
     use std::ops::DerefMut;
 
@@ -782,7 +913,8 @@ mod tests {
     }
 
     #[test]
-    fn buffer_traits() -> Result<(), HardError> {
+    #[cfg(feature = "restricted-types")]
+    fn buffer_traits_restricted() -> Result<(), HardError> {
         let mut buf = buffer!(32)?;
         buf.zero();
 
