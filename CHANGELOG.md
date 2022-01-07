@@ -1,3 +1,6 @@
+# 0.5.0 (January 2022)
+Add PhantomData marker to buffer types.
+
 # 0.4.0 (December 2021)
 Generation of `BufferReadOnly` and `BufferNoAccess` types (plus all associated traits and methods)
 is now not done by default - the `restricted-types` feature must be enabled to generate this code.
