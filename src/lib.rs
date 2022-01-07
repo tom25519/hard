@@ -306,7 +306,7 @@ macro_rules! _buffer_common_impl {
                 //      setting panic=abort, will mean that the destructor is not called. In any
                 //      other case, `drop` will be called, and the memory freed.
                 unsafe {
-                    $crate::mem::free(self.0);
+                    $crate::mem::free(self.ptr);
                 }
             }
         }
@@ -320,7 +320,7 @@ macro_rules! _buffer_immutable_impl {
         #[doc(hidden)]
         unsafe impl $crate::BufferAsPtr for $name {
             unsafe fn as_ptr(&self) -> std::ptr::NonNull<()> {
-                self.0.cast()
+                self.ptr.cast()
             }
         }
 
@@ -331,7 +331,7 @@ macro_rules! _buffer_immutable_impl {
                 // the struct, as the memory is only freed on drop. Any portion of memory of length
                 // T is a valid array of `u8`s of size T, so initialisation & alignment issues are
                 // not a concern.
-                unsafe { self.0.as_ref() }
+                unsafe { self.ptr.as_ref() }
             }
         }
 
@@ -342,7 +342,7 @@ macro_rules! _buffer_immutable_impl {
                 // the struct, as the memory is only freed on drop. Any portion of memory of length
                 // T is a valid array of `u8`s of size T, so initialisation & alignment issues are
                 // not a concern.
-                unsafe { self.0.as_ref() }
+                unsafe { self.ptr.as_ref() }
             }
         }
 
@@ -361,7 +361,7 @@ macro_rules! _buffer_immutable_impl {
                 // the struct, as the memory is only freed on drop. Any portion of memory of length
                 // T is a valid array of `u8`s of size T, so initialisation & alignment issues are
                 // not a concern.
-                unsafe { self.0.as_ref() }
+                unsafe { self.ptr.as_ref() }
             }
         }
 
@@ -376,13 +376,13 @@ macro_rules! _buffer_immutable_impl {
                 // function simply compares two pointers, they will not be modified. As both `self`
                 // and `other` are instances of a Buffer, we know they must point to sufficient,
                 // allocated memory for their types, so the memcmp call is safe.
-                unsafe { $crate::mem::memcmp(self.0, other.as_ptr().cast()) }
+                unsafe { $crate::mem::memcmp(self.ptr, other.as_ptr().cast()) }
             }
         }
 
         impl std::fmt::Pointer for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-                <std::ptr::NonNull<[u8; $size]> as std::fmt::Pointer>::fmt(&self.0, f)
+                <std::ptr::NonNull<[u8; $size]> as std::fmt::Pointer>::fmt(&self.ptr, f)
             }
         }
     };
@@ -411,7 +411,10 @@ macro_rules! _buffer_mutable_impl {
                     // represented as $size bytes of memory, of arbitrary values. The alignment for
                     // a u8 is just 1, so we don't need to worry about alignment issues.
                     let ptr = unsafe { $crate::mem::malloc()? };
-                    Ok(Self(ptr))
+                    Ok(Self {
+                        ptr,
+                        _marker: std::marker::PhantomData,
+                    })
                 }
             }
 
@@ -424,7 +427,7 @@ macro_rules! _buffer_mutable_impl {
                     // SAFETY: While a buffer is in scope, its memory is valid. It is therefore
                     // safe to write zeroes to the buffer. All zeroes is a valid memory
                     // representation of a u8 array.
-                    unsafe { $crate::mem::memzero(self.0) }
+                    unsafe { $crate::mem::memzero(self.ptr) }
                 }
 
                 fn try_clone(&self) -> Result<Self, $crate::HardError> {
@@ -439,8 +442,11 @@ macro_rules! _buffer_mutable_impl {
                     // type, so when it goes out of scope, the memory will then be freed.
                     let self_leak = std::mem::ManuallyDrop::new(self);
                     // SAFETY: The buffer is currently in scope, so its backing memory is valid.
-                    unsafe { $crate::mem::mprotect_noaccess(self_leak.0)?; }
-                    Ok([<$name NoAccess>](self_leak.0))
+                    unsafe { $crate::mem::mprotect_noaccess(self_leak.ptr)?; }
+                    Ok([<$name NoAccess>] {
+                        ptr: self_leak.ptr,
+                        _marker: std::marker::PhantomData,
+                    })
                 }
 
                 fn into_readonly(self) -> Result<Self::ReadOnly, $crate::HardError> {
@@ -449,8 +455,11 @@ macro_rules! _buffer_mutable_impl {
                     // type, so when it goes out of scope, the memory will then be freed.
                     let self_leak = std::mem::ManuallyDrop::new(self);
                     // SAFETY: The buffer is currently in scope, so its backing memory is valid.
-                    unsafe { $crate::mem::mprotect_readonly(self_leak.0)?; }
-                    Ok([<$name ReadOnly>](self_leak.0))
+                    unsafe { $crate::mem::mprotect_readonly(self_leak.ptr)?; }
+                    Ok([<$name ReadOnly>] {
+                        ptr: self_leak.ptr,
+                        _marker: std::marker::PhantomData,
+                    })
                 }
             }
 
@@ -461,7 +470,7 @@ macro_rules! _buffer_mutable_impl {
                     // of the struct, as the memory is only freed on drop. Any portion of memory of
                     // length T is a valid array of `u8`s of size T, so initialisation & alignment
                     // issues are not a concern.
-                    unsafe { self.0.as_mut() }
+                    unsafe { self.ptr.as_mut() }
                 }
             }
 
@@ -472,7 +481,7 @@ macro_rules! _buffer_mutable_impl {
                     // of the struct, as the memory is only freed on drop. Any portion of memory of
                     // length T is a valid array of `u8`s of size T, so initialisation & alignment
                     // issues are not a concern.
-                    unsafe { self.0.as_mut() }
+                    unsafe { self.ptr.as_mut() }
                 }
             }
 
@@ -483,7 +492,7 @@ macro_rules! _buffer_mutable_impl {
                     // of the struct, as the memory is only freed on drop. Any portion of memory of
                     // length T is a valid array of `u8`s of size T, so initialisation & alignment
                     // issues are not a concern.
-                    unsafe { self.0.as_mut() }
+                    unsafe { self.ptr.as_mut() }
                 }
             }
         }
@@ -513,7 +522,10 @@ macro_rules! _buffer_mutable_impl {
                     // represented as $size bytes of memory, of arbitrary values. The alignment for
                     // a u8 is just 1, so we don't need to worry about alignment issues.
                     let ptr = unsafe { $crate::mem::malloc()? };
-                    Ok(Self(ptr))
+                    Ok(Self {
+                        ptr,
+                        _marker: std::marker::PhantomData,
+                    })
                 }
             }
 
@@ -522,7 +534,7 @@ macro_rules! _buffer_mutable_impl {
                     // SAFETY: While a buffer is in scope, its memory is valid. It is therefore
                     // safe to write zeroes to the buffer. All zeroes is a valid memory
                     // representation of a u8 array.
-                    unsafe { $crate::mem::memzero(self.0) }
+                    unsafe { $crate::mem::memzero(self.ptr) }
                 }
 
                 fn try_clone(&self) -> Result<Self, $crate::HardError> {
@@ -539,7 +551,7 @@ macro_rules! _buffer_mutable_impl {
                     // of the struct, as the memory is only freed on drop. Any portion of memory of
                     // length T is a valid array of `u8`s of size T, so initialisation & alignment
                     // issues are not a concern.
-                    unsafe { self.0.as_mut() }
+                    unsafe { self.ptr.as_mut() }
                 }
             }
 
@@ -550,7 +562,7 @@ macro_rules! _buffer_mutable_impl {
                     // of the struct, as the memory is only freed on drop. Any portion of memory of
                     // length T is a valid array of `u8`s of size T, so initialisation & alignment
                     // issues are not a concern.
-                    unsafe { self.0.as_mut() }
+                    unsafe { self.ptr.as_mut() }
                 }
             }
 
@@ -561,7 +573,7 @@ macro_rules! _buffer_mutable_impl {
                     // of the struct, as the memory is only freed on drop. Any portion of memory of
                     // length T is a valid array of `u8`s of size T, so initialisation & alignment
                     // issues are not a concern.
-                    unsafe { self.0.as_mut() }
+                    unsafe { self.ptr.as_mut() }
                 }
             }
         }
@@ -594,7 +606,10 @@ macro_rules! _buffer_noaccess_impl {
                         $crate::mem::mprotect_noaccess(ptr)?;
                         ptr
                     };
-                    Ok(Self(ptr))
+                    Ok(Self {
+                        ptr,
+                        _marker: std::marker::PhantomData,
+                    })
                 }
             }
 
@@ -609,8 +624,11 @@ macro_rules! _buffer_noaccess_impl {
                     // type, so when it goes out of scope, the memory will then be freed.
                     let self_leak = std::mem::ManuallyDrop::new(self);
                     // SAFETY: The buffer is currently in scope, so its backing memory is valid.
-                    unsafe { $crate::mem::mprotect_readwrite(self_leak.0)?; }
-                    Ok($name(self_leak.0))
+                    unsafe { $crate::mem::mprotect_readwrite(self_leak.ptr)?; }
+                    Ok($name {
+                        ptr: self_leak.ptr,
+                        _marker: std::marker::PhantomData,
+                    })
                 }
 
                 fn into_readonly(self) -> Result<Self::ReadOnly, $crate::HardError> {
@@ -619,8 +637,11 @@ macro_rules! _buffer_noaccess_impl {
                     // type, so when it goes out of scope, the memory will then be freed.
                     let self_leak = std::mem::ManuallyDrop::new(self);
                     // SAFETY: The buffer is currently in scope, so its backing memory is valid.
-                    unsafe { $crate::mem::mprotect_readonly(self_leak.0)?; }
-                    Ok([<$name ReadOnly>](self_leak.0))
+                    unsafe { $crate::mem::mprotect_readonly(self_leak.ptr)?; }
+                    Ok([<$name ReadOnly>] {
+                        ptr: self_leak.ptr,
+                        _marker: std::marker::PhantomData,
+                    })
                 }
             }
         }
@@ -654,7 +675,10 @@ macro_rules! _buffer_readonly_impl {
                         $crate::mem::mprotect_readonly(ptr)?;
                         ptr
                     };
-                    Ok(Self(ptr))
+                    Ok(Self {
+                        ptr,
+                        _marker: std::marker::PhantomData,
+                    })
                 }
             }
 
@@ -677,8 +701,11 @@ macro_rules! _buffer_readonly_impl {
                     // type, so when it goes out of scope, the memory will then be freed.
                     let self_leak = std::mem::ManuallyDrop::new(self);
                     // SAFETY: The buffer is currently in scope, so its backing memory is valid.
-                    unsafe { $crate::mem::mprotect_readwrite(self_leak.0)?; }
-                    Ok($name(self_leak.0))
+                    unsafe { $crate::mem::mprotect_readwrite(self_leak.ptr)?; }
+                    Ok($name {
+                        ptr: self_leak.ptr,
+                        _marker: std::marker::PhantomData,
+                    })
                 }
 
                 fn into_noaccess(self) -> Result<Self::NoAccess, $crate::HardError> {
@@ -687,8 +714,11 @@ macro_rules! _buffer_readonly_impl {
                     // type, so when it goes out of scope, the memory will then be freed.
                     let self_leak = std::mem::ManuallyDrop::new(self);
                     // SAFETY: The buffer is currently in scope, so its backing memory is valid.
-                    unsafe { $crate::mem::mprotect_noaccess(self_leak.0)?; }
-                    Ok([<$name NoAccess>](self_leak.0))
+                    unsafe { $crate::mem::mprotect_noaccess(self_leak.ptr)?; }
+                    Ok([<$name NoAccess>] {
+                        ptr: self_leak.ptr,
+                        _marker: std::marker::PhantomData,
+                    })
                 }
             }
         }
@@ -703,15 +733,24 @@ macro_rules! _buffer_type_impl {
         $(
             $crate::paste::paste! {
                 $(#[$metadata])*
-                $vis struct $name(std::ptr::NonNull<[u8; $size]>);
+                $vis struct $name {
+                    ptr: std::ptr::NonNull<[u8; $size]>,
+                    _marker: std::marker::PhantomData<[u8; $size]>,
+                }
                 $crate::_buffer_mutable_impl!($name, $size);
 
                 /// Variation of this buffer type whose contents are restricted from being accessed.
-                $vis struct [<$name NoAccess>](std::ptr::NonNull<[u8; $size]>);
+                $vis struct [<$name NoAccess>] {
+                    ptr: std::ptr::NonNull<[u8; $size]>,
+                    _marker: std::marker::PhantomData<[u8; $size]>,
+                }
                 $crate::_buffer_noaccess_impl!($name, $size);
 
                 /// Variation of this buffer type whose contents are restricted from being mutated.
-                $vis struct [<$name ReadOnly>](std::ptr::NonNull<[u8; $size]>);
+                $vis struct [<$name ReadOnly>] {
+                    ptr: std::ptr::NonNull<[u8; $size]>,
+                    _marker: std::marker::PhantomData<[u8; $size]>,
+                }
                 $crate::_buffer_readonly_impl!($name, $size);
             }
         )*
@@ -726,7 +765,10 @@ macro_rules! _buffer_type_impl {
         $(
             $crate::paste::paste! {
                 $(#[$metadata])*
-                $vis struct $name(std::ptr::NonNull<[u8; $size]>);
+                $vis struct $name {
+                    ptr: std::ptr::NonNull<[u8; $size]>,
+                    _marker: std::marker::PhantomData<[u8; $size]>,
+                }
                 $crate::_buffer_mutable_impl!($name, $size);
             }
         )*
@@ -853,9 +895,7 @@ pub fn init() -> Result<(), HardError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        buffer, buffer_type, init, Buffer, BufferMut, HardError,
-    };
+    use super::{buffer, buffer_type, init, Buffer, BufferMut, HardError};
     #[cfg(feature = "restricted-types")]
     use super::{BufferNoAccess, BufferReadOnly};
     use std::borrow::{Borrow, BorrowMut};
